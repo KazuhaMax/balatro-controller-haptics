@@ -10,7 +10,6 @@ First public release.
 - Separate low-frequency body and high-frequency detail, with gentler Sony gain.
 - Add finite command duration, explicit stops and driver-error handling.
 - Preserve strength controls and the existing standalone save-folder loader.
-- Validate 17 regression groups; confirm DualSense USB-C feel on macOS.
 
 ## 1.0.0 — private prototype
 

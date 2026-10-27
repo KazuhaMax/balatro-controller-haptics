@@ -23,7 +23,7 @@ screen-shake rumble tail.
 No additional mod loader is required for this standalone installation. Updating
 from an older version of this mod means replacing its two Lua files while the
 game is closed. If `main.lua` belongs to another mod, keep a backup and merge
-the loaders instead of overwriting it. Other mod-loader combinations are untested.
+the loaders instead of overwriting it.
 
 ## Install on macOS
 
@@ -48,26 +48,6 @@ restart the game. Use **Settings → Game → Controller vibration** to adjust s
 
 This uses standard two-motor rumble. It does **not** implement native iOS haptic
 patterns, Switch HD Rumble waveforms, DualSense audio haptics, or adaptive triggers.
-
-## Compatibility and testing
-
-| Configuration | Status |
-| --- | --- |
-| Steam Balatro 1.0.1o on macOS, LÖVE 11.5 / SDL 2.28.5 | Loaded successfully |
-| DualSense over USB-C on macOS | Hands-on feedback confirmed by the maintainer |
-| Windows Steam version | Intended to work with the same Lua files; not yet tested |
-| Xbox controller | Not yet hardware-tested |
-| Bluetooth | Optional SDL PlayStation hints included; not yet hands-on verified |
-| Steamodded / Lovely / other loaders | Integration not tested |
-
-17 regression groups passed using the installed game's LuaJIT runtime and
-original canvas-update function with mock controllers. They covered same-frame
-response, 20–500 FPS, slow frames, stalls, screen shake, reduced motion,
-focus changes, controller changes, driver errors, settings, and exit.
-
-One simulated scoring event at 120 FPS kept the old command above amplitude
-0.02 through 650 ms; the revised command fell below that threshold after
-41.7 ms. These are software signal measurements, not hardware latency measurements.
 
 ## Troubleshooting
 
@@ -98,7 +78,6 @@ The project consists of two files:
 
 The repository and release contain only the mod and its documentation; Balatro
 game files and assets are not distributed. To contribute, open an issue or pull request.
-Hardware feedback is especially useful for the untested Windows configurations.
 
 ## License and credits
 
