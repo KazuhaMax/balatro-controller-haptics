@@ -1,8 +1,8 @@
--- Controller Haptics 1.2: classified short event pulses for desktop Balatro.
+-- Controller Haptics 1.3: configurable short event pulses for desktop Balatro.
 -- Loaded by main.lua after the original game code, before love.load.
 -- Uses ordinary two-motor rumble, not native Switch HD / iOS haptics.
 
-local VERSION = '1.2.0'
+local VERSION = '1.3.0'
 local LOG_FILE = 'controller_haptics.log'
 
 -- Strength multipliers. Pulse duration is independent of strength and frame rate.
@@ -17,6 +17,7 @@ local DEFAULT_LEVEL = 3
 local function classified_mode()
     return G.SETTINGS.haptics_style ~= 'simple'
 end
+local get_config
 
 -- Level names in the game's language, in LEVELS order. Other languages use the
 -- English labels above.
@@ -104,6 +105,10 @@ function create_toggle(args)
     return {n = G.UIT.R, config = {align = 'cm', padding = 0.05}, nodes = {
         {n = G.UIT.C, config = {align = 'cm'}, nodes = {strength}},
         {n = G.UIT.C, config = {align = 'cm'}, nodes = {style}},
+        {n = G.UIT.C, config = {align = 'cm', padding = 0.1}, nodes = {
+            UIBox_button({label = {chinese and '详细设置' or 'Customize'},
+                button = 'controller_haptics_menu', minw = 1.6, minh = 0.65, scale = 0.3}),
+        }},
     }}
 end
 
@@ -150,6 +155,85 @@ local EFFECTS = {
     blind_reveal = {0.085, 0.24, 0.34},
     startup_open = {0.080, 0.20, 0.30}, startup_close = {0.095, 0.27, 0.38},
 }
+
+-- Settings contain only numbers, booleans, strings and plain tables so the
+-- game's existing settings serializer can persist them without a new loader.
+local MIXES = {'original', 'light', 'balanced', 'heavy', 'dual'}
+local DEVICES = {'auto', 'generic', 'dualsense', 'sony'}
+local function valid_choice(value, choices, fallback)
+    for _, choice in ipairs(choices) do if value == choice then return value end end
+    return fallback
+end
+local function bounded(value, default, low, high)
+    value = tonumber(value)
+    if not value or value ~= value or value == math.huge or value == -math.huge then return default end
+    return math.max(low, math.min(high, value))
+end
+local function clean_event(raw)
+    raw = type(raw) == 'table' and raw or {}
+    return {enabled = raw.enabled ~= false, gain = bounded(raw.gain, 1, 0.25, 2),
+        duration = bounded(raw.duration, 1, 0.5, 1.5),
+        mix = valid_choice(raw.mix, MIXES, 'original')}
+end
+local function clean_profile(raw)
+    raw = type(raw) == 'table' and raw or {}
+    local result = {device = valid_choice(raw.device, DEVICES, 'auto'),
+        gain = bounded(raw.gain, 1, 0.5, 1.5),
+        left = bounded(raw.left, 1, 0.5, 1.5), right = bounded(raw.right, 1, 0.5, 1.5),
+        flame = raw.flame == true, flame_strength = bounded(raw.flame_strength, 0.5, 0.25, 1),
+        events = {}}
+    for category in pairs(EFFECTS) do
+        result.events[category] = clean_event(type(raw.events) == 'table' and raw.events[category])
+    end
+    return result
+end
+local config_cache
+get_config = function()
+    local raw = G.SETTINGS.haptics_config
+    if type(raw) ~= 'table' or raw ~= config_cache then
+        local clean = clean_profile(raw)
+        clean.version, clean.slots = 1, {}
+        if type(raw) == 'table' and type(raw.slots) == 'table' then
+            for i = 1, 3 do
+                if type(raw.slots[i]) == 'table' then clean.slots[i] = clean_profile(raw.slots[i]) end
+            end
+        end
+        G.SETTINGS.haptics_config, config_cache = clean, clean
+    end
+    return config_cache
+end
+
+-- Score heat adds body only to scoring pulses, not a continuously running motor.
+-- Use the same score/target boundary as the visual flames. Log arithmetic avoids
+-- overflow on large vanilla scores; unsupported big-number objects safely skip it.
+local function score_heat()
+    if not G.STATES or G.STATE ~= G.STATES.HAND_PLAYED or not G.STAGES
+        or G.STAGE ~= G.STAGES.RUN or G.SETTINGS.paused or G.OVERLAY_MENU then return 0 end
+    local game = G.GAME
+    local hand = game and game.current_round and game.current_round.current_hand
+    local target = game and game.blind and game.blind.chips
+    local chips, mult = hand and hand.chips, hand and hand.mult
+    for _, value in ipairs({chips or false, mult or false, target or false}) do
+        if type(value) ~= 'number' or value ~= value or value <= 0 or value == math.huge then return 0 end
+    end
+    local ratio_log = math.log(chips) + math.log(mult) - math.log(target)
+    if ratio_log < -1e-9 then return 0 end
+    return 0.25 + 0.75 * math.min(1, math.max(0, ratio_log)/math.log(16))
+end
+local function event_pulse(category, now, cfg, preview)
+    local base, opt = EFFECTS[category], cfg.events[category]
+    if not base or not opt or not opt.enabled then return end
+    local left, right = base[2], base[3]
+    local peak = math.max(left, right)
+    if opt.mix == 'light' then left, right = peak*0.25, peak
+    elseif opt.mix == 'balanced' then left, right = peak*0.7, peak*0.7
+    elseif opt.mix == 'heavy' then left, right = peak, peak*0.25
+    elseif opt.mix == 'dual' then left, right = peak, peak end
+    local heat = not preview and cfg.flame and category:match('^score_') and score_heat() or 0
+    local gain = opt.gain * (1 + heat*cfg.flame_strength)
+    return {time = now, duration = math.max(0.020, math.min(0.180, base[1]*opt.duration)),
+        left = left*gain, right = right*gain}
+end
 -- Sound-category mapping adapted from delta9690/balatro-rumble/categories.lua.
 -- Copyright (c) 2026 Luna-Terra. MIT License; full notice is included below
 -- so that installing just the two Lua files preserves the upstream notice.
@@ -181,9 +265,11 @@ local SOUND_EVENTS = {
 }
 local event_queue, event_seen, event_last = {}, {}, {}
 local blind_pending
+local preview_request
 local function clear_events()
     event_queue, event_seen, event_last = {}, {}, {}
     blind_pending = nil
+    preview_request = nil
 end
 local function enqueue(category)
     if not classified_mode() or not focused or event_seen[category] or not EFFECTS[category] then return end
@@ -340,6 +426,7 @@ local function update_haptics()
     if not connected(pad) then pad = nil end
     if pad ~= driven_pad then select_pad(pad) end
     local scale = LEVELS[rumble_level()].scale
+    local cfg = get_config()
     G.F_RUMBLE = scale
     if not pad or not focused or not supported or scale == 0 or stalled then
         if last_left ~= 0 or last_right ~= 0 then stop_pad(driven_pad) end
@@ -351,17 +438,27 @@ local function update_haptics()
 
     local classified = classified_mode() and #event_queue > 0
     local fresh = false
-    if classified then
+    if preview_request then
+        local preview = preview_request
+        preview_request = nil
+        local pulse
+        if preview == '_left' or preview == '_right' then
+            pulse = {time = now, duration = 0.070,
+                left = preview == '_left' and 0.35 or 0,
+                right = preview == '_right' and 0.35 or 0}
+        else
+            pulse = event_pulse(preview, now, cfg, true)
+        end
+        if pulse then pulses[#pulses + 1] = pulse; fresh = true end
+    elseif classified then
         for _, category in ipairs(event_queue) do
             -- Confirmation wins over incidental focus movement in the same frame.
             if not (category == 'ui_focus' and event_seen.ui_confirm) then
-                local effect = EFFECTS[category]
                 -- Coalesce same-category bursts without extending a held envelope.
                 if now - (event_last[category] or -math.huge) >= 0.025 then
                     event_last[category] = now
-                    pulses[#pulses + 1] = {time = now, duration = effect[1],
-                        left = effect[2], right = effect[3]}
-                    fresh = true
+                    local pulse = event_pulse(category, now, cfg)
+                    if pulse then pulses[#pulses + 1] = pulse; fresh = true end
                 end
             end
         end
@@ -392,8 +489,10 @@ local function update_haptics()
             right = math.max(right, pulse.right * envelope)
         end
     end
-    left = math.min(1, left * scale * pad_gain)
-    right = math.min(1, right * scale * pad_gain)
+    local device_gain = cfg.device == 'auto' and pad_gain
+        or cfg.device == 'dualsense' and 1.4 or cfg.device == 'sony' and 0.7 or 1
+    left = math.min(1, left * scale * device_gain * cfg.gain * cfg.left)
+    right = math.min(1, right * scale * device_gain * cfg.gain * cfg.right)
     if left < 0.005 then left = 0 end
     if right < 0.005 then right = 0 end
     local stopping = left == 0 and right == 0
@@ -442,5 +541,239 @@ function love.joystickremoved(joystick)
     described[joystick] = nil
     pcall(log, 'disconnected: %s', tostring(joystick:getName()))
     if vanilla_joystickremoved then return vanilla_joystickremoved(joystick) end
+end
+
+-- Compact native game menus. No Steamodded, Lovely or web UI dependency.
+local function tr(zh, en)
+    local language = G.SETTINGS.language
+    return (language == 'zh_CN' or language == 'zh_TW') and zh or en
+end
+local EVENT_NAMES = {
+    ui_focus = {'菜单移动', 'Menu focus'}, ui_confirm = {'菜单确认', 'Menu confirm'},
+    card_draw = {'抽牌', 'Card draw'}, hand_played = {'出牌', 'Hand played'},
+    card_debuff = {'卡牌减益', 'Card debuff'}, card_destroy = {'卡牌销毁', 'Card destruction'},
+    card_shatter = {'玻璃碎裂', 'Glass shatter'},
+    score_chips = {'筹码计分', 'Score chips'}, score_mult = {'倍率计分', 'Score mult'},
+    score_xmult = {'乘倍率', 'Score XMult'}, score_edition = {'版本计分', 'Score edition'},
+    score_generic = {'其他计分', 'Other scoring'},
+    coin = {'逐枚金币', 'Individual coin'}, money_gain = {'获得金钱', 'Money gain'},
+    cash_out = {'结算总额', 'Cash-out total'}, blind_reveal = {'盲注揭示', 'Blind reveal'},
+    startup_open = {'标题开场', 'Title opening'}, startup_close = {'标题收尾', 'Title closing'},
+}
+local GROUPS = {
+    {name = {'菜单', 'Menus'}, events = {'ui_focus', 'ui_confirm'}},
+    {name = {'卡牌', 'Cards'}, events = {'card_draw', 'hand_played', 'card_debuff', 'card_destroy', 'card_shatter'}},
+    {name = {'计分', 'Scoring'}, events = {'score_chips', 'score_mult', 'score_xmult', 'score_edition', 'score_generic'}},
+    {name = {'金币与盲注', 'Money and blinds'}, events = {'coin', 'money_gain', 'cash_out', 'blind_reveal'}},
+    {name = {'标题', 'Title'}, events = {'startup_open', 'startup_close'}},
+}
+local ui = {group = 1, event = 'ui_focus', preset = 1, slot = 1, status = ''}
+local open_page
+local function text_row(value, size)
+    return {n = G.UIT.R, config = {align = 'cm', padding = 0.04}, nodes = {
+        {n = G.UIT.T, config = {text = value, scale = size or 0.3, colour = G.C.UI.TEXT_LIGHT}},
+    }}
+end
+local function button(zh, en, callback, small)
+    return UIBox_button({label = {tr(zh, en)}, button = callback,
+        minw = small and 2.7 or 5.8, minh = 0.6, scale = 0.34})
+end
+local function pair(a, b)
+    return {n = G.UIT.R, config = {align = 'cm', padding = 0.08}, nodes = {
+        {n = G.UIT.C, config = {align = 'cm'}, nodes = {a}},
+        {n = G.UIT.C, config = {align = 'cm'}, nodes = {b}},
+    }}
+end
+local function selected(value, values)
+    for i, entry in ipairs(values) do if value == entry then return i end end
+    return 1
+end
+local function cycle(zh, en, labels, values, value, callback)
+    return create_option_cycle({label = tr(zh, en), options = labels,
+        current_option = selected(value, values), opt_callback = callback,
+        scale = 0.6, w = 5.6, h = 0.55, no_pips = true})
+end
+local GAINS = {0.5, 0.75, 1, 1.25, 1.5}
+local GAIN_LABELS = {'50%', '75%', '100%', '125%', '150%'}
+local EVENT_GAINS = {0.25, 0.5, 0.75, 1, 1.25, 1.5, 2}
+local EVENT_GAIN_LABELS = {'25%', '50%', '75%', '100%', '125%', '150%', '200%'}
+local function save_change()
+    silence()
+    G:save_settings()
+end
+local function set_option(values, apply)
+    return function(args)
+        local value = args and values[args.to_key]
+        if value == nil then return end
+        apply(get_config(), value)
+        save_change()
+    end
+end
+G.FUNCS.controller_haptics_event_on = set_option({true, false}, function(cfg, value) cfg.events[ui.event].enabled = value end)
+G.FUNCS.controller_haptics_event_gain = set_option(EVENT_GAINS, function(cfg, value) cfg.events[ui.event].gain = value end)
+G.FUNCS.controller_haptics_event_duration = set_option(GAINS, function(cfg, value) cfg.events[ui.event].duration = value end)
+G.FUNCS.controller_haptics_event_mix = set_option(MIXES, function(cfg, value) cfg.events[ui.event].mix = value end)
+G.FUNCS.controller_haptics_device_select = set_option(DEVICES, function(cfg, value) cfg.device = value end)
+G.FUNCS.controller_haptics_gain = set_option(GAINS, function(cfg, value) cfg.gain = value end)
+G.FUNCS.controller_haptics_left = set_option(GAINS, function(cfg, value) cfg.left = value end)
+G.FUNCS.controller_haptics_right = set_option(GAINS, function(cfg, value) cfg.right = value end)
+G.FUNCS.controller_haptics_flame = set_option({false, true}, function(cfg, value) cfg.flame = value end)
+G.FUNCS.controller_haptics_flame_strength = set_option({0.25, 0.5, 1}, function(cfg, value) cfg.flame_strength = value end)
+
+local function preview(category)
+    silence()
+    preview_request = category
+end
+G.FUNCS.controller_haptics_preview = function() preview(ui.event) end
+G.FUNCS.controller_haptics_test_left = function() preview('_left') end
+G.FUNCS.controller_haptics_test_right = function() preview('_right') end
+G.FUNCS.controller_haptics_event_reset = function()
+    get_config().events[ui.event] = clean_event()
+    save_change()
+    open_page('event', true)
+end
+G.FUNCS.controller_haptics_preset_select = function(args)
+    if args and ({1, 2, 3})[args.to_key] then ui.preset = args.to_key end
+end
+G.FUNCS.controller_haptics_slot_select = function(args)
+    if args and ({1, 2, 3})[args.to_key] then ui.slot = args.to_key end
+end
+local function replace_profile(profile)
+    local slots = get_config().slots
+    local clean = clean_profile(profile)
+    clean.version, clean.slots = 1, slots
+    G.SETTINGS.haptics_config, config_cache = clean, clean
+    save_change()
+end
+G.FUNCS.controller_haptics_preset_apply = function()
+    local profile = clean_profile()
+    if ui.preset == 2 then
+        for _, event in pairs(profile.events) do event.mix, event.duration = 'balanced', 1.25 end
+    elseif ui.preset == 3 then
+        profile.gain = 0.75
+        for _, event in pairs(profile.events) do event.duration = 0.75 end
+    end
+    replace_profile(profile)
+    ui.status = tr('预设已应用', 'Preset applied')
+    open_page('profiles', true)
+end
+G.FUNCS.controller_haptics_slot_save = function()
+    local cfg = get_config()
+    cfg.slots[ui.slot] = clean_profile(cfg)
+    save_change()
+    ui.status = tr('已保存到槽位 ', 'Saved to slot ') .. ui.slot
+    open_page('profiles', true)
+end
+G.FUNCS.controller_haptics_slot_load = function()
+    local profile = get_config().slots[ui.slot]
+    if profile then
+        replace_profile(profile)
+        ui.status = tr('已载入槽位 ', 'Loaded slot ') .. ui.slot
+    else ui.status = tr('所选槽位为空', 'Selected slot is empty') end
+    open_page('profiles', true)
+end
+
+for index in ipairs(GROUPS) do
+    local group_index = index
+    G.FUNCS['controller_haptics_group_' .. index] = function()
+        ui.group = group_index
+        open_page('group')
+    end
+end
+for category in pairs(EVENT_NAMES) do
+    local event = category
+    G.FUNCS['controller_haptics_event_' .. event] = function()
+        ui.event = event
+        open_page('event')
+    end
+end
+for _, page in ipairs({'menu', 'profiles', 'events', 'group', 'device', 'flames'}) do
+    local target = page
+    G.FUNCS['controller_haptics_' .. target] = function() open_page(target) end
+end
+G.FUNCS.controller_haptics_back = function()
+    silence()
+    G.FUNCS.settings(nil, true)
+end
+
+open_page = function(page, refresh)
+    silence()
+    local cfg, rows = get_config(), {}
+    local back, title = 'controller_haptics_menu', tr('震动设置', 'Controller haptics')
+    if page == 'menu' then
+        back = 'controller_haptics_back'
+        rows = {
+            button('预设与保存槽位', 'Presets and saved profiles', 'controller_haptics_profiles'),
+            button('按事件调整', 'Customize events', 'controller_haptics_events'),
+            button('手柄与左右强度', 'Controller tuning', 'controller_haptics_device'),
+            button('计分火焰反馈', 'Score flame feedback', 'controller_haptics_flames'),
+            text_row(tr('事件设置仅用于“事件”风格', 'Event settings apply to the Events style')),
+            text_row(tr('设置自动保存；总强度在游戏设置中调整', 'Changes save automatically; master strength is in Game settings')),
+        }
+    elseif page == 'profiles' then
+        title = tr('预设与保存槽位', 'Presets and profiles')
+        rows = {
+            cycle('内置预设', 'Built-in preset', {tr('清晰（1.2 默认）', 'Crisp (1.2 default)'), tr('均衡', 'Balanced'), tr('柔和', 'Soft')}, {1, 2, 3}, ui.preset, 'controller_haptics_preset_select'),
+            button('应用所选预设', 'Apply selected preset', 'controller_haptics_preset_apply'),
+            cycle('保存槽位', 'Profile slot', {tr('槽位 1', 'Slot 1'), tr('槽位 2', 'Slot 2'), tr('槽位 3', 'Slot 3')}, {1, 2, 3}, ui.slot, 'controller_haptics_slot_select'),
+            pair(button('保存当前设置', 'Save current', 'controller_haptics_slot_save', true),
+                button('载入所选槽位', 'Load selected', 'controller_haptics_slot_load', true)),
+            text_row(tr('保存会替换所选槽位；包含事件、手柄和火焰设置', 'Saving replaces the slot: events, controller and flame settings')),
+            text_row(tr('总强度与事件／简洁风格保持不变', 'Master strength and Events/Simple style are kept')),
+            text_row(ui.status),
+        }
+    elseif page == 'events' then
+        title = tr('事件分类', 'Event categories')
+        for i, group in ipairs(GROUPS) do rows[#rows + 1] = button(group.name[1], group.name[2], 'controller_haptics_group_' .. i) end
+    elseif page == 'group' then
+        back = 'controller_haptics_events'
+        local group = GROUPS[ui.group]
+        title = tr(group.name[1], group.name[2])
+        for _, category in ipairs(group.events) do
+            local name = EVENT_NAMES[category]
+            rows[#rows + 1] = button(name[1], name[2], 'controller_haptics_event_' .. category)
+        end
+    elseif page == 'event' then
+        back = 'controller_haptics_group'
+        local name, opt = EVENT_NAMES[ui.event], cfg.events[ui.event]
+        title = tr(name[1], name[2])
+        rows = {
+            cycle('事件反馈', 'Event feedback', {tr('开', 'On'), tr('关', 'Off')}, {true, false}, opt.enabled, 'controller_haptics_event_on'),
+            cycle('事件强度', 'Event strength', EVENT_GAIN_LABELS, EVENT_GAINS, opt.gain, 'controller_haptics_event_gain'),
+            cycle('脉冲时长', 'Pulse duration', GAIN_LABELS, GAINS, opt.duration, 'controller_haptics_event_duration'),
+            cycle('左右混合', 'Channel mix', {tr('原始比例', 'Original'), tr('偏右（轻）', 'Right / light'), tr('双侧均衡', 'Balanced'), tr('偏左（重）', 'Left / heavy'), tr('双侧全量', 'Dual full')}, MIXES, opt.mix, 'controller_haptics_event_mix'),
+            pair(button('预览震动', 'Preview pulse', 'controller_haptics_preview', true),
+                button('重置此事件', 'Reset event', 'controller_haptics_event_reset', true)),
+            text_row(tr('用手柄操作预览；关闭总震动时不会输出', 'Use the controller to preview; master Off stays silent')),
+        }
+    elseif page == 'device' then
+        title = tr('手柄调校', 'Controller tuning')
+        rows = {
+            cycle('设备预设', 'Device preset', {tr('自动', 'Auto'), 'Xbox / Generic', 'DualSense', 'Other Sony'}, DEVICES, cfg.device, 'controller_haptics_device_select'),
+            cycle('额外增益', 'Additional gain', GAIN_LABELS, GAINS, cfg.gain, 'controller_haptics_gain'),
+            cycle('左侧强度', 'Left strength', GAIN_LABELS, GAINS, cfg.left, 'controller_haptics_left'),
+            cycle('右侧强度', 'Right strength', GAIN_LABELS, GAINS, cfg.right, 'controller_haptics_right'),
+            pair(button('测试左侧', 'Test left', 'controller_haptics_test_left', true),
+                button('测试右侧', 'Test right', 'controller_haptics_test_right', true)),
+            text_row(tr('Steam Input 隐藏型号时可手动选择设备', 'Select the device manually if Steam Input hides its identity')),
+        }
+    elseif page == 'flames' then
+        title = tr('计分火焰反馈', 'Score flame feedback')
+        rows = {
+            cycle('火焰增强', 'Flame boost', {tr('关', 'Off'), tr('开', 'On')}, {false, true}, cfg.flame, 'controller_haptics_flame'),
+            cycle('最大增强幅度', 'Maximum boost', {'+25%', '+50%', '+100%'}, {0.25, 0.5, 1}, cfg.flame_strength, 'controller_haptics_flame_strength'),
+            text_row(tr('计分达到盲注后，随分数比例增强计分脉冲', 'Scoring pulses grow stronger once the hand reaches the blind')),
+            text_row(tr('达到目标的 16 倍时触及增强上限', 'Boost reaches its cap at 16 times the blind target')),
+            text_row(tr('不延长脉冲，不在菜单或等待时持续震动', 'No longer pulses or continuous rumble during menus or idle')),
+            text_row(tr('仅在“事件”风格中生效，默认关闭', 'Events style only; disabled by default')),
+        }
+    end
+    table.insert(rows, 1, text_row(title, 0.45))
+    local previous_stack = G.NO_MOD_CURSOR_STACK
+    if refresh then G.NO_MOD_CURSOR_STACK = true end
+    G.SETTINGS.paused = true
+    G.FUNCS.overlay_menu({definition = create_UIBox_generic_options({back_func = back,
+        contents = {{n = G.UIT.C, config = {align = 'cm', padding = 0.08}, nodes = rows}}})})
+    G.NO_MOD_CURSOR_STACK = previous_stack
 end
 

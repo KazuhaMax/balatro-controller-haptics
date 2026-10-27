@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 — 2026-10-28
+
+- Add native Chinese/English customization menus with five event groups.
+- Add per-event enable, gain, duration, channel mix, preview and reset controls.
+- Add Crisp, Balanced and Soft presets and three persistent custom profile slots.
+- Add manual device selection, gain, left/right trims and single-channel tests.
+- Add optional score-to-blind flame boost with a bounded cap, scoring-only scope
+  and no continuous rumble or longer pulses. Disabled by default.
+- Preserve the 1.2 defaults, saved master strength and Events/Simple selection.
+- Keep the standalone two-file installation with no additional mod framework.
+
 ## 1.2.0 — 2026-10-28
 
 - Increase directly identified DualSense gain from 0.7 to 1.4, leaving Xbox/general

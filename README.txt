@@ -1,16 +1,27 @@
-Balatro Controller Haptics 1.2.0
+Balatro Controller Haptics 1.3.0
 
-分类反馈与 DualSense 增强 / Classified feedback and stronger DualSense rumble
 
-设置 → 游戏：震动强度建议先选“中”，震动风格默认“事件”。
-“事件”区分菜单、抽牌、出牌、计分、金币及结算等操作。
-“简洁”保留 1.1 的通用短脉冲反馈，可随时切换比较。
-DualSense 专用增益从 0.7 提高到 1.4；Xbox 强度不变。无需前置 mod。
-这是自行调校的效果，不代表官方 iOS／Switch 手感的原样复刻。
+正式版 / Release
 
-Settings > Game > Haptic style: Events (default) / Simple (1.1 feel).
-Events use independently tuned short-pulse presets, not official waveforms.
-Sound categories still work when muted. Unknown native signals use fallback.
+设置 → 游戏 → 详细设置：
+- 18 类事件，分为菜单、卡牌、计分、金币与盲注、标题五组。
+- 每个事件可调整开关、强度、时长、左右混合，并预览或重置。
+- 清晰、均衡、柔和三种内置预设；三个自定义配置槽位。
+- 设备预设、额外增益、左右通道强度与测试。
+- 可选计分火焰增强，默认关闭；默认参数保留 1.2 的手感。
+配置自动保存在 settings.jkr。槽位保存不包含总强度及事件／简洁风格。
+这是 mod，但自带 Lua 加载器，不需要 Lovely 或 Steamodded。
+
+Settings > Game > Customize:
+- 18 events in five categories, with on/off, gain, duration, channel mix and preview.
+- Crisp, Balanced and Soft presets; three custom profile slots.
+- Device preset, additional gain and independent left/right trims and tests.
+- Optional score/blind-based flame boost, disabled by default.
+Defaults preserve the 1.2 feel. Settings save in the existing settings.jkr.
+Profiles include events, controller and flames, excluding master strength/style.
+Event settings and flames use Events style; controller trims also affect Simple.
+Flames boost scoring pulses from the blind target up to 16x the target, without
+extending pulses or adding continuous rumble. Output is capped at 100%.
 
 - Sends feedback after the current frame's input and animation events.
 - Uses short pulses (about 35–100 ms) measured in real time.
@@ -46,7 +57,8 @@ See README.md or README.zh-CN.md for details.
 TECHNICAL NOTES
 
 Steam Input may present a
-DualSense as an Xbox controller, preventing automatic Sony preset detection.
+DualSense as an Xbox controller. Select Customize > Controller tuning >
+Device preset > DualSense to override automatic detection.
 This mod uses standard two-motor rumble. It does not implement native iOS
 Core Haptics, Switch HD Rumble waveforms, or DualSense audio-based haptics.
 Those platforms' exact feel is not guaranteed. USB is fine; the inherited
