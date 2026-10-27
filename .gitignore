@@ -1,0 +1,12 @@
+.DS_Store
+*.log
+*.jkr
+*.love
+*.exe
+*.dll
+*.dylib
+*.zip
+work/
+game-source/
+.env
+.env.*
