@@ -2,16 +2,19 @@
 
 Short, responsive controller rumble for the Steam desktop version of Balatro.
 
-[中文说明](README.zh-CN.md) · [Download v1.1.0](https://github.com/KazuhaMax/balatro-controller-haptics/releases/latest) · [Report an issue](https://github.com/KazuhaMax/balatro-controller-haptics/issues)
+[中文说明](README.zh-CN.md) · [Download v1.2.0](https://github.com/KazuhaMax/balatro-controller-haptics/releases/latest) · [Report an issue](https://github.com/KazuhaMax/balatro-controller-haptics/issues)
 
 This small Lua mod enables controller vibration and replaces the desktop game's
 rumble mixing with short event-driven pulses. Menu navigation responds in the
 current frame; scoring and card effects produce distinct hits without a long
 screen-shake rumble tail.
 
+**v1.2.0** adds classified event feedback and stronger DualSense rumble.
+No Lovely or Steamodded dependency is required.
+
 ## Install on Windows
 
-1. Download and extract `balatro-controller-haptics-1.1.0.zip` from Releases.
+1. Extract `balatro-controller-haptics-1.2.0.zip`.
 2. Quit Balatro completely.
 3. Press **Win + R**, enter `%AppData%\Balatro`, and press Enter. If the folder
    does not exist, launch Balatro once, quit, then try again.
@@ -38,16 +41,29 @@ restart the game. Use **Settings → Game → Controller vibration** to adjust s
 
 ## What changes
 
+- **Haptic style → Events / Simple** switches between classified effects (default)
+  and the 1.1 generic short-pulse response. The selection is saved.
+- Events distinguish menu focus/confirmation, card draws, played hands, chips,
+  mult/XMult/edition scoring, coins, cash-out totals, debuffs, destruction,
+  shattering, blind reveals and title effects, with separate pulse presets.
+- Menu focus is observed directly; other categories use sound calls, even while
+  muted. Shared sound names can classify additional scenes using the same sound.
+- Same-category events in a frame are coalesced. Classified events replace the
+  aggregate signal for that frame; unknown events with native vibration signals
+  retain generic feedback.
 - Menu feedback is sent after input and game events are processed in the current frame.
-- Effects use roughly 40–100 ms pulses timed in real seconds, independent of game speed.
+- Effects use roughly 35–100 ms pulses timed in real seconds, independent of game speed.
 - New screen-shake impulses trigger hits; their visual decay does not repeatedly retrigger rumble.
-- High-frequency detail gets more weight than low-frequency body. Directly identified Sony pads use a gentler preset.
+- High-frequency detail gets more weight than low-frequency body. Directly identified DualSense pads use a 1.4 gain (twice the preview's 0.7 command amplitude before clamping); Xbox/general gain stays at 1.0. Other Sony pads retain 0.7.
 - Effects stop on focus loss, controller changes, disconnection, Off, and quit.
 - Every nonzero command has a finite 120 ms duration to bound rumble if the game stalls.
 - Strength settings: Off, Low, Medium, High, Max. Existing settings are preserved.
 
 This uses standard two-motor rumble. It does **not** implement native iOS haptic
 patterns, Switch HD Rumble waveforms, DualSense audio haptics, or adaptive triggers.
+Event classification makes individual tuning possible; it does not establish
+parity with official versions. Compare the same controller on iOS and desktop
+before drawing conclusions about feel.
 
 ## Troubleshooting
 
@@ -83,6 +99,11 @@ game files and assets are not distributed. To contribute, open an issue or pull 
 
 [MIT License](LICENSE). Maintained by [KazuhaMax](https://github.com/KazuhaMax).
 Developed with assistance from Claude and OpenAI Codex.
+
+Sound-category mappings are adapted from [Luna-Terra's balatro-rumble](https://github.com/delta9690/balatro-rumble/blob/main/categories.lua),
+under MIT. The full upstream notice is retained in the Lua file and
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt). Pulse synthesis and presets
+remain this project's independent implementation.
 
 This is an unofficial fan mod and is not affiliated with or endorsed by
 Balatro's developers or publisher. Balatro is required and must be obtained separately.

@@ -1,13 +1,24 @@
-Balatro Controller Haptics 1.1.0
+Balatro Controller Haptics 1.2.0
 
-Fixes for sticky rumble and late menu feedback
+分类反馈与 DualSense 增强 / Classified feedback and stronger DualSense rumble
+
+设置 → 游戏：震动强度建议先选“中”，震动风格默认“事件”。
+“事件”区分菜单、抽牌、出牌、计分、金币及结算等操作。
+“简洁”保留 1.1 的通用短脉冲反馈，可随时切换比较。
+DualSense 专用增益从 0.7 提高到 1.4；Xbox 强度不变。无需前置 mod。
+这是自行调校的效果，不代表官方 iOS／Switch 手感的原样复刻。
+
+Settings > Game > Haptic style: Events (default) / Simple (1.1 feel).
+Events use independently tuned short-pulse presets, not official waveforms.
+Sound categories still work when muted. Unknown native signals use fallback.
 
 - Sends feedback after the current frame's input and animation events.
-- Uses short pulses (about 40–100 ms) measured in real time.
+- Uses short pulses (about 35–100 ms) measured in real time.
 - Converts each new screen-shake impulse into a single hit; the visual decay
   no longer feeds the motors every frame.
 - Gives high-frequency detail more weight than low-frequency body, with a
-  gentler preset when a Sony/DualSense controller is directly identified.
+  stronger 1.4 gain when a DualSense is directly identified (previously 0.7).
+  Xbox/general gain remains 1.0; other Sony controllers retain 0.7.
 - Stops on focus loss, controller changes, disconnection, Off, and quit.
 - Sets a 120 ms maximum duration for every nonzero hardware command so a
   stalled game does not leave an indefinite rumble command running.
@@ -54,3 +65,5 @@ https://wiki.libsdl.org/SDL2/SDL_GameControllerRumble
 
 Source and releases: https://github.com/KazuhaMax/balatro-controller-haptics
 License: MIT (see LICENSE).
+Sound mapping adapted from Luna-Terra's balatro-rumble (MIT).
+See THIRD_PARTY_NOTICES.txt and the notice embedded in controller_haptics.lua.
