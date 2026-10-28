@@ -1,4 +1,4 @@
-# Balatro Controller Haptics
+# 小丑牌手柄增强｜Balatro Controller Haptics
 
 Short, responsive controller rumble for the Steam desktop version of Balatro.
 
@@ -9,13 +9,14 @@ rumble mixing with short event-driven pulses. Menu navigation responds in the
 current frame; scoring and card effects produce distinct hits without a long
 screen-shake rumble tail.
 
-**v1.3.0** adds event customization, saved profiles, controller tuning
-and optional score-based flame feedback.
+**v1.3.2** adds automatic and manual PlayStation, Nintendo and Xbox button icons,
+including the flame feedback and controller navigation fixes from 1.3.1.
+New settings use Balanced feedback with flames enabled.
 No Lovely or Steamodded dependency is required.
 
 ## Install on Windows
 
-1. Extract `balatro-controller-haptics-1.3.0.zip`.
+1. Extract `balatro-controller-haptics-1.3.2.zip`.
 2. Quit Balatro completely.
 3. Press **Win + R**, enter `%AppData%\Balatro`, and press Enter. If the folder
    does not exist, launch Balatro once, quit, then try again.
@@ -42,28 +43,42 @@ restart the game. Use **Settings → Game → Controller vibration** to adjust s
 
 ## Customize the feedback
 
-Open **Settings → Game → Customize**, alongside vibration strength and Haptic style.
-The default settings preserve the 1.2 feel; flame feedback starts disabled.
+Open **Settings → Game → Customize**, directly below vibration strength.
+Haptic style is now inside Customize. New settings use Balanced with flames enabled.
+Existing saved settings are preserved: to adopt the new defaults, apply Balanced
+and enable **Score flame feedback → Flame boost**.
 
 - **Customize events:** 18 events in five groups: menus, cards, scoring, money/blinds,
   and title effects. Each event has an on/off switch, strength (25–200%), duration
   (50–150%), channel mix, a preview button and an individual reset.
 - **Channel mixes:** Original, Right / light, Balanced, Left / heavy and Dual full.
   These adjust the two standard rumble channels. Perceived weight depends on the pad.
-- **Presets and saved profiles:** Crisp (1.2 default), Balanced and Soft presets,
+- **Presets and saved profiles:** Balanced (default) and Soft presets,
   plus three slots for your own event, controller and flame settings. Saving replaces
-  the selected slot; loading an empty slot leaves settings unchanged. Master strength
+  the selected slot; loading an empty slot leaves settings unchanged. Balanced uses
+  equal channels and 125% event duration; Soft uses original channel ratios, 75%
+  duration and 75% gain. Applying either preset keeps device selection, left/right
+  trims and flame settings. Master strength
   and the Events/Simple style are not included in a profile. Settings persist in
   the game's existing `settings.jkr`; no extra configuration file is needed.
 - **Controller tuning:** Auto, Xbox / Generic, DualSense or Other Sony preset;
   additional gain and independent left/right trims (50–150%), with channel tests.
   Manually select DualSense when Steam Input exposes it as a virtual Xbox pad.
   This is manual tuning, not automatic hardware calibration or native audio haptics.
-- **Score flame feedback:** optionally boosts scoring pulses as the current hand's
-  chips × mult reaches and exceeds the blind target. Boost rises from one quarter
-  of the selected maximum at the target to its full cap at 16× the target.
-  Choose a maximum of +25%, +50% or +100%. It does not extend pulses or create
-  continuous rumble, and skips menus, idle periods and unsupported big-number values.
+- **Button icons:** Auto (default), PlayStation, Nintendo or Xbox, with live previews.
+  Auto recognizes Sony/Nintendo vendor IDs and DualSense, DualShock, Switch and
+  Joy-Con names. If Steam Input exposes a virtual Xbox device, choose a style
+  manually under **Customize → Button icons**. Nintendo defaults to B/A/Y/X
+  for south/east/west/north; choose **Swap A/B and X/Y** if Steam Input
+  remaps the letters. This changes prompts throughout the game, not input bindings.
+  Icon choices save independently of rumble presets and profile slots.
+- **Score flame feedback:** adds short, separated crackle pulses once the displayed
+  hand score (chips × mult) reaches the blind target, even without a new score sound.
+  The 55 ms pulses repeat every 100–150 ms while qualifying scoring continues.
+  Scoring-event boost starts at half the selected maximum at the target and reaches
+  its cap at 4× the target. Choose +25%, +50% or +100%; this also scales crackle
+  strength. Flames stop on pause, menus or the end of scoring, and skip unsupported
+  big-number values.
 
 Event customization and flame feedback apply to **Events** style. Controller trims
 also apply to **Simple**. Use a controller to activate pulse previews; master Off,
@@ -96,9 +111,10 @@ native UI functions. No game executable patch or additional mod framework is nee
   aggregate signal for that frame; unknown events with native vibration signals
   retain generic feedback.
 - Menu feedback is sent after input and game events are processed in the current frame.
-- Effects use roughly 35–100 ms pulses timed in real seconds, independent of game speed.
+- Event pulses are timed in real seconds, independent of game speed; preset and
+  per-event duration settings adjust their length.
 - New screen-shake impulses trigger hits; their visual decay does not repeatedly retrigger rumble.
-- High-frequency detail gets more weight than low-frequency body. Directly identified DualSense pads use a 1.4 gain (twice the preview's 0.7 command amplitude before clamping); Xbox/general gain stays at 1.0. Other Sony pads retain 0.7.
+- The original channel mix favors high-frequency detail; Balanced uses equal channels. Directly identified DualSense pads use a 1.4 gain (twice the preview's 0.7 command amplitude before clamping); Xbox/general gain stays at 1.0. Other Sony pads retain 0.7.
 - Effects stop on focus loss, controller changes, disconnection, Off, and quit.
 - Every nonzero command has a finite 120 ms duration to bound rumble if the game stalls.
 - Strength settings: Off, Low, Medium, High, Max. Existing settings are preserved.

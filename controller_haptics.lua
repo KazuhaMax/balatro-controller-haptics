@@ -2,7 +2,7 @@
 -- Loaded by main.lua after the original game code, before love.load.
 -- Uses ordinary two-motor rumble, not native Switch HD / iOS haptics.
 
-local VERSION = '1.3.0'
+local VERSION = '1.3.2'
 local LOG_FILE = 'controller_haptics.log'
 
 -- Strength multipliers. Pulse duration is independent of strength and frame rate.
@@ -97,17 +97,17 @@ function create_toggle(args)
     local options = {}
     for i, level in ipairs(LEVELS) do options[i] = names[i] or level.label end
     local strength = create_option_cycle({label = args.label, scale = 0.65, w = 3, options = options,
+        id = 'controller_haptics_strength', focus_args = {nav = 'wide'},
         current_option = rumble_level(), opt_callback = 'controller_haptics_set_level'})
     local chinese = G.SETTINGS.language == 'zh_CN' or G.SETTINGS.language == 'zh_TW'
-    local style = create_option_cycle({label = chinese and '震动风格' or 'Haptic style',
-        scale = 0.65, w = 3, options = chinese and {'事件', '简洁'} or {'Events', 'Simple'},
-        current_option = classified_mode() and 1 or 2, opt_callback = 'controller_haptics_set_style'})
-    return {n = G.UIT.R, config = {align = 'cm', padding = 0.05}, nodes = {
-        {n = G.UIT.C, config = {align = 'cm'}, nodes = {strength}},
-        {n = G.UIT.C, config = {align = 'cm'}, nodes = {style}},
-        {n = G.UIT.C, config = {align = 'cm', padding = 0.1}, nodes = {
+    -- Cycles consume left/right input. Keep each on its own row so d-pad up/down
+    -- can reach every control; the style selector lives in the detailed menu.
+    return {n = G.UIT.R, config = {align = 'cm', padding = 0.02}, nodes = {
+        {n = G.UIT.C, config = {align = 'cm'}, nodes = {
+            strength,
             UIBox_button({label = {chinese and '详细设置' or 'Customize'},
-                button = 'controller_haptics_menu', minw = 1.6, minh = 0.65, scale = 0.3}),
+                id = 'controller_haptics_menu', focus_args = {nav = 'wide'},
+                button = 'controller_haptics_menu', minw = 2.4, minh = 0.5, scale = 0.3}),
         }},
     }}
 end
@@ -132,6 +132,7 @@ end
 -- even produce negative amplitudes. Keep its visual work, but own motor output.
 -- Only NEW additions to jiggle count as impacts, including scoring animations.
 local pulses, pending = {}, 0
+local flame_pulse, next_flame = nil, 0
 local last_room, last_jiggle
 local driven_pad, pad_gain, supported
 local last_send, last_left, last_right = -math.huge, 0, 0
@@ -172,15 +173,15 @@ end
 local function clean_event(raw)
     raw = type(raw) == 'table' and raw or {}
     return {enabled = raw.enabled ~= false, gain = bounded(raw.gain, 1, 0.25, 2),
-        duration = bounded(raw.duration, 1, 0.5, 1.5),
-        mix = valid_choice(raw.mix, MIXES, 'original')}
+        duration = bounded(raw.duration, 1.25, 0.5, 1.5),
+        mix = valid_choice(raw.mix, MIXES, 'balanced')}
 end
 local function clean_profile(raw)
     raw = type(raw) == 'table' and raw or {}
     local result = {device = valid_choice(raw.device, DEVICES, 'auto'),
         gain = bounded(raw.gain, 1, 0.5, 1.5),
         left = bounded(raw.left, 1, 0.5, 1.5), right = bounded(raw.right, 1, 0.5, 1.5),
-        flame = raw.flame == true, flame_strength = bounded(raw.flame_strength, 0.5, 0.25, 1),
+        flame = raw.flame ~= false, flame_strength = bounded(raw.flame_strength, 0.5, 0.25, 1),
         events = {}}
     for category in pairs(EFFECTS) do
         result.events[category] = clean_event(type(raw.events) == 'table' and raw.events[category])
@@ -203,12 +204,100 @@ get_config = function()
     return config_cache
 end
 
--- Score heat adds body only to scoring pulses, not a continuously running motor.
+-- Button artwork is independent of rumble profiles and input bindings. Reuse the
+-- game's own atlas: Nintendo's row already labels south/east/west/north B/A/Y/X.
+local GLYPHS = {'auto', 'playstation', 'nintendo', 'xbox'}
+local function glyph_setting()
+    return valid_choice(G.SETTINGS.haptics_glyphs, GLYPHS, 'auto')
+end
+local function pad_console(controller)
+    local pad = controller.GAMEPAD and controller.GAMEPAD.object
+    local name, vendor = '', nil
+    if pad and pad.getName then
+        local ok, value = pcall(pad.getName, pad)
+        if ok then name = tostring(value):lower() end
+    end
+    if pad and pad.getDeviceInfo then
+        local ok, value = pcall(pad.getDeviceInfo, pad)
+        if ok then vendor = value end
+    end
+    local mapped = controller.GAMEPAD and controller.GAMEPAD.name or ''
+    name = name .. ' ' .. tostring(mapped):lower()
+    if vendor == 0x054c or name:find('dualsense', 1, true)
+        or name:find('dualshock', 1, true) or name:find('playstation', 1, true)
+        or name:match('%f[%w]ps[345]%f[%W]') or name:match('%f[%w]sony%f[%W]') then
+        return 'Playstation'
+    elseif vendor == 0x057e or name:find('nintendo', 1, true)
+        or name:find('switch', 1, true) or name:match('joy[- ]?con') then
+        return 'Nintendo'
+    end
+    if controller.get_console_from_gamepad then
+        return controller:get_console_from_gamepad(mapped)
+    end
+    return 'Xbox'
+end
+local glyph_cache
+local function update_glyphs(force)
+    local controller = G.CONTROLLER
+    if not controller then return end
+    local choice = glyph_setting()
+    local pad = controller.GAMEPAD and controller.GAMEPAD.object
+    local swap = G.SETTINGS.haptics_nintendo_swap == true
+    local ps4 = G.F_PS4_PLAYSTATION_GLYPHS == true
+    if not force and glyph_cache and glyph_cache.pad == pad and glyph_cache.choice == choice
+        and glyph_cache.swap == swap and glyph_cache.ps4 == ps4
+        and controller.GAMEPAD_CONSOLE == glyph_cache.console then return end
+    local console = choice == 'playstation' and 'Playstation'
+        or choice == 'nintendo' and 'Nintendo' or choice == 'xbox' and 'Xbox'
+        or pad_console(controller)
+    controller.GAMEPAD_CONSOLE = console
+    glyph_cache = {pad = pad, choice = choice, swap = swap, ps4 = ps4, console = console}
+    local row = console == 'Nintendo' and 2 or console == 'Playstation' and (ps4 and 3 or 1) or 0
+    for _, sprite in pairs(G.I and G.I.SPRITE or {}) do
+        if sprite._haptics_button_x ~= nil then
+            local x = sprite._haptics_button_x
+            if console == 'Nintendo' and swap and x < 4 then x = x % 2 == 0 and x + 1 or x - 1 end
+            sprite:set_sprite_pos({x = x, y = row})
+        end
+    end
+end
+local vanilla_set_gamepad = Controller.set_gamepad
+if vanilla_set_gamepad then
+    function Controller:set_gamepad(...)
+        local result = vanilla_set_gamepad(self, ...)
+        update_glyphs()
+        return result
+    end
+end
+local vanilla_create_button_binding_pip = create_button_binding_pip
+if vanilla_create_button_binding_pip then
+    function create_button_binding_pip(args)
+        update_glyphs()
+        local definition = vanilla_create_button_binding_pip(args)
+        local function mark(node)
+            local sprite = node.config and node.config.object
+            if sprite and G.ASSET_ATLAS and sprite.atlas == G.ASSET_ATLAS.gamepad_ui then
+                sprite._haptics_button_x = sprite.sprite_pos.x
+                local x = sprite._haptics_button_x
+                if G.CONTROLLER.GAMEPAD_CONSOLE == 'Nintendo'
+                    and G.SETTINGS.haptics_nintendo_swap == true and x < 4 then
+                    sprite:set_sprite_pos({x = x % 2 == 0 and x + 1 or x - 1, y = 2})
+                end
+            end
+            for _, child in ipairs(node.nodes or {}) do mark(child) end
+        end
+        mark(definition)
+        return definition
+    end
+end
+
+-- Score heat drives separated crackle pulses while a scored hand is on fire.
 -- Use the same score/target boundary as the visual flames. Log arithmetic avoids
 -- overflow on large vanilla scores; unsupported big-number objects safely skip it.
 local function score_heat()
     if not G.STATES or G.STATE ~= G.STATES.HAND_PLAYED or not G.STAGES
-        or G.STAGE ~= G.STAGES.RUN or G.SETTINGS.paused or G.OVERLAY_MENU then return 0 end
+        or G.STAGE ~= G.STAGES.RUN or G.SETTINGS.paused or G.OVERLAY_MENU
+        or G.TAROT_INTERRUPT or (G.pack_cards and not G.pack_cards.REMOVED) then return 0 end
     local game = G.GAME
     local hand = game and game.current_round and game.current_round.current_hand
     local target = game and game.blind and game.blind.chips
@@ -218,7 +307,7 @@ local function score_heat()
     end
     local ratio_log = math.log(chips) + math.log(mult) - math.log(target)
     if ratio_log < -1e-9 then return 0 end
-    return 0.25 + 0.75 * math.min(1, math.max(0, ratio_log)/math.log(16))
+    return 0.5 + 0.5 * math.min(1, math.max(0, ratio_log)/math.log(4))
 end
 local function event_pulse(category, now, cfg, preview)
     local base, opt = EFFECTS[category], cfg.events[category]
@@ -270,6 +359,7 @@ local function clear_events()
     event_queue, event_seen, event_last = {}, {}, {}
     blind_pending = nil
     preview_request = nil
+    flame_pulse, next_flame = nil, 0
 end
 local function enqueue(category)
     if not classified_mode() or not focused or event_seen[category] or not EFFECTS[category] then return end
@@ -368,6 +458,7 @@ local function select_pad(pad)
     -- Stop the old device BEFORE sending anything to the newly selected one.
     stop_pad(driven_pad)
     pulses = {}
+    flame_pulse, next_flame = nil, 0
     last_left, last_right, last_send = 0, 0, -math.huge
     driven_pad, pad_gain, supported = pad, 1, false
     event_last = {}
@@ -438,6 +529,7 @@ local function update_haptics()
 
     local classified = classified_mode() and #event_queue > 0
     local fresh = false
+    local previewing = preview_request ~= nil
     if preview_request then
         local preview = preview_request
         preview_request = nil
@@ -489,6 +581,29 @@ local function update_haptics()
             right = math.max(right, pulse.right * envelope)
         end
     end
+    -- This layer must not depend on another score sound arriving after ignition.
+    -- Real-time spacing leaves silent gaps and never replays missed ticks after lag.
+    local heat = not previewing and classified_mode() and cfg.flame and score_heat() or 0
+    if heat > 0 then
+        if now >= next_flame then
+            flame_pulse = {time = now, left = (0.16 + 0.20*heat)*cfg.flame_strength,
+                right = (0.08 + 0.16*heat)*cfg.flame_strength}
+            next_flame = now + (0.20 - 0.10*heat)
+            fresh = true
+        end
+        if flame_pulse then
+            local age = now - flame_pulse.time
+            if age < 0.055 then
+                local envelope = math.min(1, (0.055-age)/0.043)
+                left = math.max(left, flame_pulse.left*envelope)
+                right = math.max(right, flame_pulse.right*envelope)
+            end
+        end
+    else
+        -- Do not let a flame tail leak into menus, a different hand or a pause.
+        if flame_pulse then fresh = true end
+        flame_pulse, next_flame = nil, 0
+    end
     local device_gain = cfg.device == 'auto' and pad_gain
         or cfg.device == 'dualsense' and 1.4 or cfg.device == 'sony' and 0.7 or 1
     left = math.min(1, left * scale * device_gain * cfg.gain * cfg.left)
@@ -514,6 +629,7 @@ end
 local vanilla_update = love.update
 function love.update(dt)
     vanilla_update(dt)
+    update_glyphs()
     update_haptics()
 end
 
@@ -576,6 +692,7 @@ local function text_row(value, size)
 end
 local function button(zh, en, callback, small)
     return UIBox_button({label = {tr(zh, en)}, button = callback,
+        id = callback, focus_args = {nav = 'wide'},
         minw = small and 2.7 or 5.8, minh = 0.6, scale = 0.34})
 end
 local function pair(a, b)
@@ -591,6 +708,7 @@ end
 local function cycle(zh, en, labels, values, value, callback)
     return create_option_cycle({label = tr(zh, en), options = labels,
         current_option = selected(value, values), opt_callback = callback,
+        id = callback, focus_args = {nav = 'wide'},
         scale = 0.6, w = 5.6, h = 0.55, no_pips = true})
 end
 local GAINS = {0.5, 0.75, 1, 1.25, 1.5}
@@ -608,6 +726,19 @@ local function set_option(values, apply)
         apply(get_config(), value)
         save_change()
     end
+end
+G.FUNCS.controller_haptics_glyph_select = function(args)
+    local value = args and GLYPHS[args.to_key]
+    if not value then return end
+    G.SETTINGS.haptics_glyphs = value
+    update_glyphs(true)
+    G:save_settings()
+end
+G.FUNCS.controller_haptics_nintendo_layout = function(args)
+    if not args or (args.to_key ~= 1 and args.to_key ~= 2) then return end
+    G.SETTINGS.haptics_nintendo_swap = args.to_key == 2
+    update_glyphs(true)
+    G:save_settings()
 end
 G.FUNCS.controller_haptics_event_on = set_option({true, false}, function(cfg, value) cfg.events[ui.event].enabled = value end)
 G.FUNCS.controller_haptics_event_gain = set_option(EVENT_GAINS, function(cfg, value) cfg.events[ui.event].gain = value end)
@@ -633,7 +764,7 @@ G.FUNCS.controller_haptics_event_reset = function()
     open_page('event', true)
 end
 G.FUNCS.controller_haptics_preset_select = function(args)
-    if args and ({1, 2, 3})[args.to_key] then ui.preset = args.to_key end
+    if args and ({1, 2})[args.to_key] then ui.preset = args.to_key end
 end
 G.FUNCS.controller_haptics_slot_select = function(args)
     if args and ({1, 2, 3})[args.to_key] then ui.slot = args.to_key end
@@ -646,12 +777,15 @@ local function replace_profile(profile)
     save_change()
 end
 G.FUNCS.controller_haptics_preset_apply = function()
+    local current = get_config()
     local profile = clean_profile()
+    -- A feel preset changes event shaping and gain, not device calibration or flames.
+    for _, key in ipairs({'device', 'left', 'right', 'flame', 'flame_strength'}) do
+        profile[key] = current[key]
+    end
     if ui.preset == 2 then
-        for _, event in pairs(profile.events) do event.mix, event.duration = 'balanced', 1.25 end
-    elseif ui.preset == 3 then
         profile.gain = 0.75
-        for _, event in pairs(profile.events) do event.duration = 0.75 end
+        for _, event in pairs(profile.events) do event.mix, event.duration = 'original', 0.75 end
     end
     replace_profile(profile)
     ui.status = tr('预设已应用', 'Preset applied')
@@ -687,7 +821,7 @@ for category in pairs(EVENT_NAMES) do
         open_page('event')
     end
 end
-for _, page in ipairs({'menu', 'profiles', 'events', 'group', 'device', 'flames'}) do
+for _, page in ipairs({'menu', 'profiles', 'events', 'group', 'device', 'flames', 'icons'}) do
     local target = page
     G.FUNCS['controller_haptics_' .. target] = function() open_page(target) end
 end
@@ -703,9 +837,12 @@ open_page = function(page, refresh)
     if page == 'menu' then
         back = 'controller_haptics_back'
         rows = {
+            cycle('震动风格', 'Haptic style', {tr('事件', 'Events'), tr('简洁', 'Simple')},
+                {1, 2}, classified_mode() and 1 or 2, 'controller_haptics_set_style'),
             button('预设与保存槽位', 'Presets and saved profiles', 'controller_haptics_profiles'),
             button('按事件调整', 'Customize events', 'controller_haptics_events'),
             button('手柄与左右强度', 'Controller tuning', 'controller_haptics_device'),
+            button('按键图标', 'Button icons', 'controller_haptics_icons'),
             button('计分火焰反馈', 'Score flame feedback', 'controller_haptics_flames'),
             text_row(tr('事件设置仅用于“事件”风格', 'Event settings apply to the Events style')),
             text_row(tr('设置自动保存；总强度在游戏设置中调整', 'Changes save automatically; master strength is in Game settings')),
@@ -713,12 +850,13 @@ open_page = function(page, refresh)
     elseif page == 'profiles' then
         title = tr('预设与保存槽位', 'Presets and profiles')
         rows = {
-            cycle('内置预设', 'Built-in preset', {tr('清晰（1.2 默认）', 'Crisp (1.2 default)'), tr('均衡', 'Balanced'), tr('柔和', 'Soft')}, {1, 2, 3}, ui.preset, 'controller_haptics_preset_select'),
+            cycle('内置预设', 'Built-in preset', {tr('均衡', 'Balanced'), tr('柔和', 'Soft')}, {1, 2}, ui.preset, 'controller_haptics_preset_select'),
             button('应用所选预设', 'Apply selected preset', 'controller_haptics_preset_apply'),
             cycle('保存槽位', 'Profile slot', {tr('槽位 1', 'Slot 1'), tr('槽位 2', 'Slot 2'), tr('槽位 3', 'Slot 3')}, {1, 2, 3}, ui.slot, 'controller_haptics_slot_select'),
             pair(button('保存当前设置', 'Save current', 'controller_haptics_slot_save', true),
                 button('载入所选槽位', 'Load selected', 'controller_haptics_slot_load', true)),
             text_row(tr('保存会替换所选槽位；包含事件、手柄和火焰设置', 'Saving replaces the slot: events, controller and flame settings')),
+            text_row(tr('内置预设保留设备调校与火焰开关', 'Built-in presets keep device trims and flame settings')),
             text_row(tr('总强度与事件／简洁风格保持不变', 'Master strength and Events/Simple style are kept')),
             text_row(ui.status),
         }
@@ -757,17 +895,50 @@ open_page = function(page, refresh)
                 button('测试右侧', 'Test right', 'controller_haptics_test_right', true)),
             text_row(tr('Steam Input 隐藏型号时可手动选择设备', 'Select the device manually if Steam Input hides its identity')),
         }
+    elseif page == 'icons' then
+        local pips = {}
+        for _, binding in ipairs({'a', 'b', 'x', 'y', 'leftshoulder', 'rightshoulder', 'triggerleft', 'triggerright'}) do
+            pips[#pips + 1] = {n = G.UIT.C, config = {align = 'cm', padding = 0.08},
+                nodes = create_button_binding_pip({button = binding, scale = 0.5}).nodes}
+        end
+        title = tr('按键图标', 'Button icons')
+        rows = {
+            cycle('图标样式', 'Icon style', {tr('自动', 'Auto'), 'PlayStation', 'Nintendo', 'Xbox'},
+                GLYPHS, glyph_setting(), 'controller_haptics_glyph_select'),
+            cycle('Nintendo 按键排列', 'Nintendo label layout',
+                {tr('标准位置', 'Standard positions'), tr('A/B 与 X/Y 互换', 'Swap A/B and X/Y')},
+                {false, true}, G.SETTINGS.haptics_nintendo_swap == true, 'controller_haptics_nintendo_layout'),
+            {n = G.UIT.R, config = {align = 'cm', padding = 0.1}, nodes = pips},
+            text_row(tr('Steam Input 隐藏型号时，可手动指定图标', 'Choose a style manually if Steam Input hides the device')),
+            text_row(tr('Nintendo 提示与按键不符时，切换按键排列', 'If Nintendo labels mismatch your buttons, switch the layout')),
+            text_row(tr('只调整图标；确认、返回及震动设置保持不变', 'Changes icons only; input bindings and rumble are kept')),
+        }
     elseif page == 'flames' then
         title = tr('计分火焰反馈', 'Score flame feedback')
         rows = {
             cycle('火焰增强', 'Flame boost', {tr('关', 'Off'), tr('开', 'On')}, {false, true}, cfg.flame, 'controller_haptics_flame'),
             cycle('最大增强幅度', 'Maximum boost', {'+25%', '+50%', '+100%'}, {0.25, 0.5, 1}, cfg.flame_strength, 'controller_haptics_flame_strength'),
             text_row(tr('计分达到盲注后，随分数比例增强计分脉冲', 'Scoring pulses grow stronger once the hand reaches the blind')),
-            text_row(tr('达到目标的 16 倍时触及增强上限', 'Boost reaches its cap at 16 times the blind target')),
-            text_row(tr('不延长脉冲，不在菜单或等待时持续震动', 'No longer pulses or continuous rumble during menus or idle')),
-            text_row(tr('仅在“事件”风格中生效，默认关闭', 'Events style only; disabled by default')),
+            text_row(tr('达到目标时产生短促节奏，4 倍目标达到上限', 'Short crackle pulses start at the target; full boost at 4x')),
+            text_row(tr('计分火焰活跃时轻震；离开计分或暂停即停止', 'Crackles only during scoring; stops on pause or when scoring ends')),
+            text_row(tr('仅在“事件”风格中生效，新配置默认开启', 'Events style only; enabled by default for new settings')),
         }
     end
+    local previous_focus = refresh and G.CONTROLLER and G.CONTROLLER.focused
+        and G.CONTROLLER.focused.target
+    local focus_id = previous_focus and previous_focus.config and previous_focus.config.id
+    local first, restored
+    local function prepare_focus(node)
+        local conf = node.config
+        if conf and conf.focus_args and conf.focus_args.type ~= 'none'
+            and (conf.button or conf.focus_args.type == 'cycle') then
+            first = first or conf
+            if conf.id and conf.id == focus_id then restored = conf end
+        end
+        for _, child in ipairs(node.nodes or {}) do prepare_focus(child) end
+    end
+    for _, row in ipairs(rows) do prepare_focus(row) end
+    if restored or first then (restored or first).focus_args.snap_to = true end
     table.insert(rows, 1, text_row(title, 0.45))
     local previous_stack = G.NO_MOD_CURSOR_STACK
     if refresh then G.NO_MOD_CURSOR_STACK = true end

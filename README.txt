@@ -1,4 +1,4 @@
-Balatro Controller Haptics 1.3.0
+小丑牌手柄增强｜Balatro Controller Haptics 1.3.2
 
 
 正式版 / Release
@@ -6,29 +6,41 @@ Balatro Controller Haptics 1.3.0
 设置 → 游戏 → 详细设置：
 - 18 类事件，分为菜单、卡牌、计分、金币与盲注、标题五组。
 - 每个事件可调整开关、强度、时长、左右混合，并预览或重置。
-- 清晰、均衡、柔和三种内置预设；三个自定义配置槽位。
+- 均衡（默认）、柔和两种内置预设；三个自定义配置槽位。
 - 设备预设、额外增益、左右通道强度与测试。
-- 可选计分火焰增强，默认关闭；默认参数保留 1.2 的手感。
+- 按键图标：自动 / PlayStation / Nintendo / Xbox，即时预览。
+  Nintendo 提示不符时可互换 A/B 与 X/Y；只改图标，不改按键功能。
+- 新配置默认开启计分火焰：独立短脉冲，在 4 倍盲注目标达到上限。
+- 内置预设保留设备选择、左右微调及火焰设置。
+- 已有设置保留；升级后可应用均衡，并手动开启火焰。
 配置自动保存在 settings.jkr。槽位保存不包含总强度及事件／简洁风格。
 这是 mod，但自带 Lua 加载器，不需要 Lovely 或 Steamodded。
 
 Settings > Game > Customize:
 - 18 events in five categories, with on/off, gain, duration, channel mix and preview.
-- Crisp, Balanced and Soft presets; three custom profile slots.
+- Balanced (default) and Soft presets; three custom profile slots.
 - Device preset, additional gain and independent left/right trims and tests.
-- Optional score/blind-based flame boost, disabled by default.
-Defaults preserve the 1.2 feel. Settings save in the existing settings.jkr.
+- Button icons: Auto / PlayStation / Nintendo / Xbox, with live previews.
+  Select a style manually if Steam Input hides the controller identity.
+  Nintendo can swap A/B and X/Y labels to match remapped input; bindings stay unchanged.
+  Icon settings persist separately from rumble presets and saved profiles.
+- Score/blind-based flame feedback, enabled by default for new settings.
+Balanced uses equal channels and 125% event duration; Soft uses original channel
+ratios, 75% duration and 75% gain. Built-in presets keep device selection, left/right
+trims and flame settings. Existing settings are preserved; apply Balanced and enable
+flames to adopt the new defaults. Settings save in the existing settings.jkr.
 Profiles include events, controller and flames, excluding master strength/style.
 Event settings and flames use Events style; controller trims also affect Simple.
-Flames boost scoring pulses from the blind target up to 16x the target, without
-extending pulses or adding continuous rumble. Output is capped at 100%.
+Flames add independent 55 ms crackle pulses every 100–150 ms during qualifying
+scoring. Boost starts at half its selected cap at the blind target and reaches its
+cap at 4x. Flames stop on pause, menus and the end of scoring. Output is capped at 100%.
 
 - Sends feedback after the current frame's input and animation events.
-- Uses short pulses (about 35–100 ms) measured in real time.
+- Uses short pulses measured in real time, shaped by preset/event duration settings.
 - Converts each new screen-shake impulse into a single hit; the visual decay
   no longer feeds the motors every frame.
-- Gives high-frequency detail more weight than low-frequency body, with a
-  stronger 1.4 gain when a DualSense is directly identified (previously 0.7).
+- Original channel ratios favor high-frequency detail; Balanced uses equal channels. A
+  stronger 1.4 gain applies when a DualSense is directly identified (previously 0.7).
   Xbox/general gain remains 1.0; other Sony controllers retain 0.7.
 - Stops on focus loss, controller changes, disconnection, Off, and quit.
 - Sets a 120 ms maximum duration for every nonzero hardware command so a

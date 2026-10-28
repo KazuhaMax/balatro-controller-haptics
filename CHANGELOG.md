@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.2 — 2026-10-28
+
+- Add Auto, PlayStation, Nintendo and Xbox button icon styles with live previews.
+- Recognize DualSense/DualShock, Sony vendor IDs, Switch/Joy-Con and Nintendo IDs.
+- Update existing prompts immediately when changing style or switching controllers.
+- Add optional Nintendo A/B and X/Y label swapping for remapped input layouts.
+- Save icon preferences independently of rumble settings and custom profile slots.
+- Reuse the game’s built-in artwork without changing button actions or adding dependencies.
+
+## 1.3.1 — 2026-10-28
+
+- Fix missing flame feedback when displayed scoring updates without a new sound.
+- Add separated, short flame crackles and reach full score boost at 4x the blind.
+- Stop flame output on pause, overlays and the end of scoring.
+- Fix controller navigation across customization controls; focus a control on entry
+  and retain button focus after applying, loading or resetting settings.
+- Place Customize below vibration strength and move Haptic style into Customize.
+- Keep only Balanced and Soft presets. New settings default to Balanced with flames on.
+- Keep device selection, channel trims and flame settings when applying a built-in preset.
+- Preserve existing saved settings and custom slots on upgrade.
+
 ## 1.3.0 — 2026-10-28
 
 - Add native Chinese/English customization menus with five event groups.
